@@ -4,6 +4,15 @@
 #include "bitmap.hh"
 #include "vec.hh"
 
+//http://stackoverflow.com/questions/6978643/cuda-and-classes
+#ifdef __CUDACC__
+#define CUDA_CALLABLE_MEMBER __host__ __device__
+#else
+#define CUDA_CALLABLE_MEMBER
+#endif
+
+
+
 /**
  * An abstract class that represents a shape in the scene
  */
@@ -13,7 +22,7 @@ public:
    * Create a new shape
    * \param pos The position of the shape
    */
-  shape(vec pos) : _pos(pos), 
+CUDA_CALLABLE_MEMBER shape(vec pos) : _pos(pos), 
                    _reflectivity(0.95),
                    _diffusion(0.75), 
                    _spec_intensity(0.9), 
@@ -21,49 +30,49 @@ public:
                    _static_color(true) {}
   
   // Getter and setters for the shape's position
-  vec get_pos() { return _pos; }
-  void set_pos(vec p) { _pos = p; }
-  void set_pos(float x, float y, float z) { _pos = vec(x, y, z); }
+CUDA_CALLABLE_MEMBER  vec get_pos() { return _pos; }
+CUDA_CALLABLE_MEMBER  void set_pos(vec p) { _pos = p; }
+CUDA_CALLABLE_MEMBER  void set_pos(float x, float y, float z) { _pos = vec(x, y, z); }
   
   // Get the color of this shape at a specific point
-  vec get_color(vec pos) {
+ CUDA_CALLABLE_MEMBER vec get_color(vec pos) {
     if(_static_color) return _color;
     else return _color_fn(pos);
   }
   
   // Set this shape to a single static color
-  void set_color(vec c) {
+ CUDA_CALLABLE_MEMBER void set_color(vec c) {
     _static_color = true;
     _color = c;
   }
   
   // Supply a function to determine the color of this shape
-  void set_color(vec (*color_fn)(vec)) {
+ CUDA_CALLABLE_MEMBER void set_color(vec (*color_fn)(vec)) {
     _static_color = false;
     _color_fn = color_fn;
   }
   
   // Getter and setter for reflectivity
-  float get_reflectivity() { return _reflectivity; }
-  void set_reflectivity(float r) { _reflectivity = r; }
+ CUDA_CALLABLE_MEMBER float get_reflectivity() { return _reflectivity; }
+ CUDA_CALLABLE_MEMBER void set_reflectivity(float r) { _reflectivity = r; }
   
   // Getter and setter for the diffusion level
-  float get_diffusion() { return _diffusion; }
-  void set_diffusion(float d) { _diffusion = d; }
+ CUDA_CALLABLE_MEMBER float get_diffusion() { return _diffusion; }
+ CUDA_CALLABLE_MEMBER void set_diffusion(float d) { _diffusion = d; }
   
   // Getter and setter for the specular highlight intensity
-  float get_spec_intensity() { return _spec_intensity; }
-  void set_spec_intensity(float s) { _spec_intensity = s; }
+ CUDA_CALLABLE_MEMBER float get_spec_intensity() { return _spec_intensity; }
+ CUDA_CALLABLE_MEMBER void set_spec_intensity(float s) { _spec_intensity = s; }
   
   // Getter and setter for the specular highlight density
-  float get_spec_density() { return _spec_density; }
-  void set_spec_density(float s) { _spec_density = s; }
+ CUDA_CALLABLE_MEMBER float get_spec_density() { return _spec_density; }
+ CUDA_CALLABLE_MEMBER void set_spec_density(float s) { _spec_density = s; }
   
   // Abstract method for the intersection calculation (shape-dependent)
-  virtual float intersection(vec origin, vec dir) = 0;
+ CUDA_CALLABLE_MEMBER virtual float intersection(vec origin, vec dir) = 0;
   
   // Abstract method to compute a normal at a point (shape-dependent)
-  virtual vec normal(vec p) = 0;
+ CUDA_CALLABLE_MEMBER virtual vec normal(vec p) = 0;
     
 protected:
   vec _pos;
@@ -86,14 +95,14 @@ public:
    * \param pos     The center of the sphere
    * \param radius  The radius of the sphere
    */
-  sphere(vec pos, float radius) : shape(pos), _radius(radius) {}
+ CUDA_CALLABLE_MEMBER sphere(vec pos, float radius) : shape(pos), _radius(radius) {}
   
   // Getter and setter for the radius
-  float get_radius() { return _radius; }
-  void set_radius(float r) { _radius = r; }
+ CUDA_CALLABLE_MEMBER float get_radius() { return _radius; }
+ CUDA_CALLABLE_MEMBER void set_radius(float r) { _radius = r; }
   
   // Intersection calculation
-  virtual float intersection(vec origin, vec dir) {
+ CUDA_CALLABLE_MEMBER virtual float intersection(vec origin, vec dir) {
     vec v = origin - _pos;
     
     // Next, we solve the quadratic equation that tells us where
@@ -136,13 +145,13 @@ public:
    * \param pos   The origin point of this plane
    * \param norm  A vector that points perpendicular to the face of this plane
    */
-  plane(vec pos, vec norm) : shape(pos), _norm(norm) {}
+ CUDA_CALLABLE_MEMBER plane(vec pos, vec norm) : shape(pos), _norm(norm) {}
   
   // Getter and setter for the plane normal vector
-  vec get_norm() { return _norm; }
-  void set_norm(vec n) { _norm = n; }
+ CUDA_CALLABLE_MEMBER vec get_norm() { return _norm; }
+ CUDA_CALLABLE_MEMBER void set_norm(vec n) { _norm = n; }
   
-  virtual float intersection(vec origin, vec dir) {
+ CUDA_CALLABLE_MEMBER virtual float intersection(vec origin, vec dir) {
     // Dot the plane normal with the ray direction
     float d_dot_norm = _norm.dot(dir);
     
@@ -177,7 +186,7 @@ public:
    * \param width     The width of the viewing screen
    * \param height    The height of the viewing screen
    */
-  viewport(vec origin, vec look_dir, vec up, float width, float height) :
+ CUDA_CALLABLE_MEMBER viewport(vec origin, vec look_dir, vec up, float width, float height) :
       _origin(origin), _look_dir(look_dir), _width(width), _height(height) {
     
     // Compute a viewing direction unit vector
@@ -195,12 +204,12 @@ public:
   }
   
   // Get the origin of the viewpoert
-  vec origin() {
+ CUDA_CALLABLE_MEMBER vec origin() {
     return _origin;
   }
   
   // Get a ray from the origin through a specific viewing plane coordinate
-  vec dir(float x, float y) {
+ CUDA_CALLABLE_MEMBER vec dir(float x, float y) {
     // Compute the point on the viewing plane that we are looking through
     vec p = _look_dir - _right * (x - _width / 2) + _up * (_height / 2 - y);
     
