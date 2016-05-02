@@ -22,8 +22,8 @@ public:
   }
   
   // Destructor: free the data array
- CUDA_CALLABLE_MEMBER ~bitmap() {
-    delete _data;
+   CUDA_CALLABLE_MEMBER ~bitmap() {
+   delete _data;
   }
   
   // Get the size of this bitmap's image data
@@ -33,14 +33,6 @@ public:
  CUDA_CALLABLE_MEMBER void copy_to(void* dest) {
     memcpy(dest, _data, size());
   }
-  
-  // Disallow the copy constructor for bitmaps
-  bitmap(const bitmap&) = delete;
-  bitmap(bitmap&&) = delete;
-  
-  // Disallow copying assignment for bitmaps
-  bitmap& operator=(const bitmap&) = delete;
-  bitmap& operator=(bitmap&&) = delete;
   
   // Get the height of the bitmap
   CUDA_CALLABLE_MEMBER size_t height() { return _height; }
