@@ -129,6 +129,7 @@ int main(int argc, char** argv) {
     if(cudaMemcpy(gpu_bmp, cpu_bmp, sizeof(bitmap), cudaMemcpyHostToDevice) != cudaSuccess) {
       fprintf( stderr, "Fail to copy bitmap to GPU\n");
     }
+    // why are we copying from cpu_result array to gpu?
     if(cudaMemcpy(gpu_result_array, cpu_result_array, sizeof(vec) * WIDTH * HEIGHT, cudaMemcpyHostToDevice) != cudaSuccess) {
       fprintf( stderr, "Fail to copy result_array to GPU\n");
     }
@@ -181,6 +182,14 @@ int main(int argc, char** argv) {
     set_quadrant_color <<(N + THREADS_PER_BLOCK -1)/THREADS_PER_BLOCK,
       THREADS_PER_BLOCK >>> (gpu_viewport, gpu_result_array, gpu_scene);
     cudaDeviceSynchronize();
+
+
+    // copy result array to CPU
+    if(cudaMemcpy(cpu_result_array, gpu_result_array, sizeof(vec) * WIDTH * HEIGHT, cudaMemcpyDeviceToHost) != cudaSuccess) {
+      fprintf( stderr, "Fail to copy result_array to CPU\n");
+    }
+
+
     
     // Loop over all pixels in the bitmap
     /*thread q1 = thread(set_quadrant_color, 0, WIDTH/4, view, yrot, result_array);
@@ -195,7 +204,7 @@ int main(int argc, char** argv) {
     
     for (int x = 0 ; x < WIDTH; x++){
       for(int y = 0; y < HEIGHT; y++){
-        bmp.set(x, y, result_array[x][y]);
+        bmp.set(x, y, cpu_result_array[x][y]);
       }
     }
 
