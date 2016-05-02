@@ -2,7 +2,9 @@
 // 1. Can a CUDA helper function return anything?
 // 2. MemCpy inside the kernel?
 // 3. Removed the "delete;" lines from the classes (bitmap), still getting the C++ error;
-
+// Need to hardcore num scene objects
+// Change that vector to an array
+// No For Each
 
 #include <math.h>
 #include <stdio.h>
@@ -178,8 +180,7 @@ int main(int argc, char** argv) {
 
 
     // a thread for each pixel
-    set_quadrant_color <<(N + THREADS_PER_BLOCK -1)/THREADS_PER_BLOCK,
-      THREADS_PER_BLOCK >>> (gpu_viewport, gpu_result_array, gpu_scene);
+    set_quadrant_color <<<(N + THREADS_PER_BLOCK - 1)/THREADS_PER_BLOCK, THREADS_PER_BLOCK>>> (gpu_viewport, gpu_result_array, gpu_scene);
     cudaDeviceSynchronize();
 
 
@@ -203,12 +204,12 @@ int main(int argc, char** argv) {
     
     for (int x = 0 ; x < WIDTH; x++){
       for(int y = 0; y < HEIGHT; y++){
-        bmp.set(x, y, cpu_result_array[x][y]);
+        cpu_bmp.set(x, y, cpu_result_array[x][y]);
       }
     }
 
     // Display the rendered frame
-    ui.display(bmp);
+    ui.display(cpu_bmp);
   }
   
   return 0;
@@ -218,9 +219,9 @@ int main(int argc, char** argv) {
 __global__ void set_quadrant_color(viewport view, vec* result_array, std::vector<shape*> gpu_scene){
   int index_x = threadIdx.x + blockIdx.x * blockDim.x;
   int index_y = threadIdx.y + blockIdx.y * blockDim.y;
-  vec result = raytrace(view.origin(), view.dir(x, y), 0, gpu_scene);
+  vec result = raytrace(view.origin(), view.dir(index_x, index_y), 0, gpu_scene);
   // Set the pixel color
-  result_array[index_x*WIDTH  + y] = result;
+  result_array[index_x*WIDTH  + index_y] = result;
 }
 
 /**
@@ -351,6 +352,7 @@ void init_scene() {
   // Add a flat surface
   plane* surface = new plane(vec(0, 0, 0), vec(0, 1, 0));
   // The following line uses C++'s lambda expressions to create a function
+  /*
   surface->set_color([](vec pos) {
       // This function produces a grid pattern on the plane
       if((int)pos.x() % 100 == 0 || (int)pos.z() % 100 == 0) {
@@ -358,7 +360,8 @@ void init_scene() {
       } else {
         return vec(0.15, 0.15, 0.15);
       }
-    }); 
+    });
+  */ 
   surface->set_diffusion(0.25);
   surface->set_spec_density(10);
   surface->set_spec_intensity(0.1);
