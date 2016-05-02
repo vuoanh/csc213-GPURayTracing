@@ -1,12 +1,11 @@
 #if !defined(BITMAP_HH)
 #define BITMAP_HH
 
-#include <atomic>
-#include <cassert>
-#include <cmath>
-#include <cstdint>
-#include <cstdlib>
-#include <cstring>
+#include <assert.h>
+#include <math.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "vec.hh"
 #ifdef __CUDACC__

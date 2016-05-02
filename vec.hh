@@ -1,7 +1,7 @@
 #ifndef VEC_HH
 #define VEC_HH
 
-#include <cmath>
+#include <math.h>
 
 #include "bitmap.hh"
 //http://stackoverflow.com/questions/6978643/cuda-and-classes

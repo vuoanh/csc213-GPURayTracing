@@ -4,11 +4,10 @@
 // 3. Removed the "delete;" lines from the classes (bitmap), still getting the C++ error;
 
 
-#include <cmath>
-#include <cstdio>
+#include <math.h>
+#include <stdio.h>
 #include <vector>
 #include <pthread.h>
-#include <future>
 #include <SDL.h>
 
 #include "bitmap.hh"
@@ -115,7 +114,7 @@ int main(int argc, char** argv) {
     bitmap cpu_bmp(WIDTH, HEIGHT);
     bitmap* gpu_bmp;
     vec cpu_result_array[WIDTH][HEIGHT];
-    vec gpu_result_array;
+    vec* gpu_result_array;
     
     // Allocate memory for the gpu bitmap and the gpu result array
     if (cudaMalloc(&gpu_bmp, sizeof(bitmap))!= cudaSuccess) {
