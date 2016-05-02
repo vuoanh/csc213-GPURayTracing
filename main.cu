@@ -120,7 +120,7 @@ if (cudaMalloc(&gpu_lights, sizeof(vec) * LIGHT_NUM)!= cudaSuccess) {
     vec* gpu_result_array;
     
     // Allocate memory for the gpu bitmap and the gpu result array
-    if (cudaMalloc(&gpu_bmp, (bitmap*)sizeof(bitmap))!= cudaSuccess) {
+    if (cudaMalloc(&gpu_bmp, sizeof(bitmap))!= cudaSuccess) {
       fprintf( stderr, "Fail to allocate GPU bitmap\n");
     }
     if (cudaMalloc(&gpu_result_array, sizeof(vec) * WIDTH * HEIGHT)!= cudaSuccess) {
@@ -202,7 +202,10 @@ if (cudaMalloc(&gpu_lights, sizeof(vec) * LIGHT_NUM)!= cudaSuccess) {
       q2.join();
       q3.join();
       q4.join();*/
-    
+
+
+    // would it be faster to do this inside the kernel, and then copy over the bitmap in the end?
+    // instead of writing to an array and copying that back and then running these 2 for loops?
     for (int x = 0 ; x < WIDTH; x++){
       for(int y = 0; y < HEIGHT; y++){
         cpu_bmp.set(x, y, cpu_result_array[x][y]);
