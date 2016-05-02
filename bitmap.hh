@@ -41,8 +41,8 @@ public:
   
   // Set the color at a given location
   CUDA_CALLABLE_MEMBER void set(size_t x, size_t y, vec c) {
-    assert(x < _width && "X coordinate is out of bounds");
-    assert(y < _height && "Y coordinate is out of bounds");
+    //assert(x < _width && "X coordinate is out of bounds");
+    // assert(y < _height && "Y coordinate is out of bounds");
     _data[y*_width+x].alpha = 0;
     _data[y*_width+x].blue = (uint8_t)fmax(0, fmin(255, 255*c.x()));
     _data[y*_width+x].green = (uint8_t)fmax(0, fmin(255, 255*c.y()));

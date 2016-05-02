@@ -37,20 +37,21 @@
 // Create threads for oversampling
 #define num_over_thread OVERSAMPLE*OVERSAMPLE
 #define THREADS_PER_BLOCK 8;
-
+#define OBJ_NUM 4
+#define LIGHT_NUM 2
 using namespace std;
 
 // Set up the 3D scene
 void init_scene();
 
 // Trace a ray through the scene to determine its color
-CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections, vector<shape*> gpu_scene);
+CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections, shape** gpu_scene);
 
 // A list of shapes that make up the 3D scene. Initialized by init_scene
-std::vector<shape*> scene;
+shape* scene[OBJ_NUM];
 
 // A list of light positions, all emitting pure white light
-std::vector<vec> lights;
+vec lights[LIGHT_NUM];
 
 // computes the color for the quadrants
 void set_quadrant_color(int xlow, int xhigh, viewport view, float yrot, vec result_array[][HEIGHT]);
@@ -68,22 +69,22 @@ int main(int argc, char** argv) {
   init_scene();
 
   // GPU shapes
-  std::vector<shape*> *gpu_scene;
-  if (cudaMalloc(&gpu_scene, sizeof(vector<shape*>))!= cudaSuccess) {
-    fprintf( stderr, "Fail to allocate GPU vector<shape*>\n");
+  shape** gpu_scene;
+  if (cudaMalloc(&gpu_scene, sizeof(shape*) * OBJ_NUM) != cudaSuccess) {
+    fprintf( stderr, "Fail to allocate GPU objects\n");
   }
-  if(cudaMemcpy(gpu_scene, scene, sizeof(vector<shape*>), cudaMemcpyHostToDevice) != cudaSuccess) {
-    fprintf( stderr, "Fail to copy vector<shape*> to GPU\n");
+  if(cudaMemcpy(gpu_scene, scene, sizeof(shape*) * OBJ_NUM, cudaMemcpyHostToDevice) != cudaSuccess) {
+    fprintf( stderr, "Fail to copy objects to GPU\n");
   }
 
     
   // GPU lights
-  std::vector<vec> *gpu_lights;
-  if (cudaMalloc(&gpu_lights, sizeof(vector<vec>))!= cudaSuccess) {
-    fprintf( stderr, "Fail to allocate GPU vector<vec>\n");
+ vec* gpu_lights;
+if (cudaMalloc(&gpu_lights, sizeof(vec) * LIGHT_NUM)!= cudaSuccess) {
+    fprintf( stderr, "Fail to allocate GPU lights\n");
   }
-  if(cudaMemcpy(gpu_lights, lights, sizeof(vector<vec>), cudaMemcpyHostToDevice) != cudaSuccess) {
-    fprintf( stderr, "Fail to copy vector<vec> to GPU\n");
+  if(cudaMemcpy(gpu_lights, lights,sizeof(vec) * LIGHT_NUM, cudaMemcpyHostToDevice) != cudaSuccess) {
+    fprintf( stderr, "Fail to copy lights to GPU\n");
   }
     
   
@@ -119,7 +120,7 @@ int main(int argc, char** argv) {
     vec* gpu_result_array;
     
     // Allocate memory for the gpu bitmap and the gpu result array
-    if (cudaMalloc(&gpu_bmp, sizeof(bitmap))!= cudaSuccess) {
+    if (cudaMalloc(&gpu_bmp, (bitmap*)sizeof(bitmap))!= cudaSuccess) {
       fprintf( stderr, "Fail to allocate GPU bitmap\n");
     }
     if (cudaMalloc(&gpu_result_array, sizeof(vec) * WIDTH * HEIGHT)!= cudaSuccess) {
@@ -231,7 +232,7 @@ __global__ void set_quadrant_color(viewport view, vec* result_array, std::vector
  * \param reflections   The number of times this ray has been reflected
  * \returns             The color of this ray
  */
-CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections, std::vector<shape*> gpu_scene) {
+CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections, shape** gpu_scene) {
   // Normalize the direction vector
   dir = dir.normalized();
   
@@ -240,8 +241,8 @@ CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections, std::
   float intersect_distance = 0;
   
   // Loop over all shapes in the scene to find the closest intersection
-  for(shape* shape : gpu_scene) {
-    float distance = shape->intersection(origin, dir);
+  for(int i = 0; i < OBJ_NUM; i++) {
+    float distance = shape[i]->intersection(origin, dir);
     if(distance >= 0 && (distance < intersect_distance || intersected == NULL)) {
       intersect_distance = distance;
       intersected = shape;
@@ -335,19 +336,19 @@ void init_scene() {
   sphere* red_sphere = new sphere(vec(60, 50, 0), 50);
   red_sphere->set_color(vec(0.75, 0.125, 0.125));
   red_sphere->set_reflectivity(0.5);
-  scene.push_back(red_sphere);
+  scene[0] = red_sphere;
   
   // Add a green sphere
   sphere* green_sphere = new sphere(vec(-15, 25, -25), 25);
   green_sphere->set_color(vec(0.125, 0.6, 0.125));
   green_sphere->set_reflectivity(0.5);
-  scene.push_back(green_sphere);
+  scene[1] = green_sphere;
   
   // Add a blue sphere
   sphere* blue_sphere = new sphere(vec(-50, 40, 75), 40);
   blue_sphere->set_color(vec(0.125, 0.125, 0.75));
   blue_sphere->set_reflectivity(0.5);
-  scene.push_back(blue_sphere);
+  scene[2] = blue_sphere;
   
   // Add a flat surface
   plane* surface = new plane(vec(0, 0, 0), vec(0, 1, 0));
@@ -365,9 +366,9 @@ void init_scene() {
   surface->set_diffusion(0.25);
   surface->set_spec_density(10);
   surface->set_spec_intensity(0.1);
-  scene.push_back(surface);
+  scene[3] = surface;
   
   // Add two lights
-  lights.push_back(vec(-1000, 300, 0));
-  lights.push_back(vec(100, 900, 500));
+  lights[0] = vec(-1000, 300, 0);
+  lights[1] = vec(100, 900, 500);
 }
