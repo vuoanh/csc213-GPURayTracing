@@ -217,7 +217,7 @@ if (cudaMalloc(&gpu_lights, sizeof(vec) * LIGHT_NUM)!= cudaSuccess) {
 }
 
 // computes the color for the quadrants
-__global__ void set_quadrant_color(viewport view, vec* result_array, std::vector<shape*> gpu_scene){
+__global__ void set_quadrant_color(viewport view, vec* result_array, shape** gpu_scene){
   int index_x = threadIdx.x + blockIdx.x * blockDim.x;
   int index_y = threadIdx.y + blockIdx.y * blockDim.y;
   vec result = raytrace(view.origin(), view.dir(index_x, index_y), 0, gpu_scene);
@@ -242,10 +242,10 @@ CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections, shape
   
   // Loop over all shapes in the scene to find the closest intersection
   for(int i = 0; i < OBJ_NUM; i++) {
-    float distance = shape[i]->intersection(origin, dir);
+    float distance = gpu_scene[i]->intersection(origin, dir);
     if(distance >= 0 && (distance < intersect_distance || intersected == NULL)) {
       intersect_distance = distance;
-      intersected = shape;
+      intersected = gpu_scene[i];
     }
   }
   
