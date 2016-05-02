@@ -108,7 +108,7 @@ public:
     // Next, we solve the quadratic equation that tells us where
     // our viewing angle d intersects with the sphere's surface.
     // First, the piece of the quadratic equation under the sqrt:
-    float squared_portion = pow(v.dot(dir), 2.0) - (v.dot(v) - pow(_radius, 2.0));
+    float squared_portion = v.dot(dir) * v.dot(dir) - (v.dot(v) - _radius * _radius);
     
     // If the squared portion is negative, there is no intersection
     if(squared_portion >= 0) {
@@ -127,7 +127,7 @@ public:
   }
   
   // Normal calculation
-  virtual vec normal(vec p) {
+  CUDA_CALLABLE_MEMBER virtual vec normal(vec p) {
     return (p - _pos).normalized();
   }
   
@@ -165,7 +165,7 @@ public:
   }
   
   // Get the normal for this plane at a given point (identical everywhere)
-  virtual vec normal(vec p) {
+  CUDA_CALLABLE_MEMBER virtual vec normal(vec p) {
     return _norm;
   }
   

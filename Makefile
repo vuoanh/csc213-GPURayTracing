@@ -1,5 +1,5 @@
 NVCC := nvcc -arch sm_20
-NVCC_FLAGS := -g -I/home/curtsinger/include -L/home/curtsinger/lib -ljansson -l SDL 
+NVCC_FLAGS := -g -I/home/curtsinger/include/SDL2 -D_REENTRANT -L/home/curtsinger/lib -lSDL2
 
 all: raytracer
 
