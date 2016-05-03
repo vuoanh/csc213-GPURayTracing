@@ -36,7 +36,7 @@
 #define EPSILON 0.03        // Shift points off surfaces by this much
 // Create threads for oversampling
 #define num_over_thread OVERSAMPLE*OVERSAMPLE
-#define THREADS_PER_BLOCK 8;
+#define THREADS_PER_BLOCK 8
 #define OBJ_NUM 4
 #define LIGHT_NUM 2
 using namespace std;
@@ -54,7 +54,7 @@ shape* scene[OBJ_NUM];
 vec lights[LIGHT_NUM];
 
 // computes the color for the quadrants
-void set_quadrant_color(int xlow, int xhigh, viewport view, float yrot, vec result_array[][HEIGHT]);
+__global__ void set_quadrant_color(viewport* view, vec* result_array, shape** gpu_scene);
 
 /**
  * Entry point for the raytracer
@@ -128,7 +128,7 @@ if (cudaMalloc(&gpu_lights, sizeof(vec) * LIGHT_NUM)!= cudaSuccess) {
     }
 
     // Copy memory from the cpu bitmap and result array to the gpu counterparts
-    if(cudaMemcpy(gpu_bmp, cpu_bmp, sizeof(bitmap), cudaMemcpyHostToDevice) != cudaSuccess) {
+    if(cudaMemcpy(gpu_bmp, &cpu_bmp, sizeof(bitmap), cudaMemcpyHostToDevice) != cudaSuccess) {
       fprintf( stderr, "Fail to copy bitmap to GPU\n");
     }
     // why are we copying from cpu_result array to gpu?
@@ -143,65 +143,23 @@ if (cudaMalloc(&gpu_lights, sizeof(vec) * LIGHT_NUM)!= cudaSuccess) {
     if (cudaMalloc(&gpu_viewport, sizeof(viewport))!= cudaSuccess) {
       fprintf( stderr, "Fail to allocate GPU viewport\n");
     }
-    if(cudaMemcpy(gpu_viewport, view, sizeof(viewport), cudaMemcpyHostToDevice) != cudaSuccess) {
+    if(cudaMemcpy(gpu_viewport, &view, sizeof(viewport), cudaMemcpyHostToDevice) != cudaSuccess) {
       fprintf( stderr, "Fail to copy viewport to GPU\n");
     }
 
-    /** Potentially useless, probably
-     // vec origin    
-     vec cpu_origin = view.origin();
-     vec* gpu_origin;
-     if (cudaMalloc(&gpu_origin, sizeof(vec))!= cudaSuccess) {
-     fprintf( stderr, "Fail to allocate GPU vec_origin\n");
-     }
-     if(cudaMemcpy(gpu_origin, cpu_origin, sizeof(vec), cudaMemcpyHostToDevice) != cudaSuccess) {
-     fprintf( stderr, "Fail to copy vec_origin to GPU\n");
-     }
-
-     // vec dir
-     vec* gpu_dir;
-     if (cudaMalloc(&gpu_dir, sizeof(vec))!= cudaSuccess) {
-     fprintf( stderr, "Fail to allocate GPU vec_dir\n");
-     }
-    
-     // size_t reflections
-     size_t cpu_reflections = 0;
-     size_t* gpu_reflections;
-     if (cudaMalloc(&gpu_reflections, sizeof(size_t))!= cudaSuccess) {
-     fprintf( stderr, "Fail to allocate GPU gpu_reflections\n");
-     }
-     if(cudaMemcpy(gpu_reflections, cpu_reflections, sizeof(size_t), cudaMemcpyHostToDevice) != cudaSuccess) {
-     fprintf( stderr, "Fail to copy size_t reflections to GPU\n");
-     }
-    **/
-
-    
-    
     int N = WIDTH * HEIGHT;
 
-
     // a thread for each pixel
-    set_quadrant_color <<<(N + THREADS_PER_BLOCK - 1)/THREADS_PER_BLOCK, THREADS_PER_BLOCK>>> (gpu_viewport, gpu_result_array, gpu_scene);
+    set_quadrant_color <<<(N + THREADS_PER_BLOCK - 1)/THREADS_PER_BLOCK,
+      THREADS_PER_BLOCK>>> (gpu_viewport, gpu_result_array, gpu_scene);
     cudaDeviceSynchronize();
 
 
     // copy result array to CPU
-    if(cudaMemcpy(cpu_result_array, gpu_result_array, sizeof(vec) * WIDTH * HEIGHT, cudaMemcpyDeviceToHost) != cudaSuccess) {
+    if(cudaMemcpy(cpu_result_array, gpu_result_array, sizeof(vec) * WIDTH * HEIGHT, cudaMemcpyDeviceToHost)
+       != cudaSuccess) {
       fprintf( stderr, "Fail to copy result_array to CPU\n");
     }
-
-
-    
-    // Loop over all pixels in the bitmap
-    /*thread q1 = thread(set_quadrant_color, 0, WIDTH/4, view, yrot, result_array);
-      thread q2 = thread(set_quadrant_color, WIDTH/4, 2*WIDTH/4, view, yrot,result_array );
-      thread q3 = thread(set_quadrant_color, 2*WIDTH/4, 3*WIDTH/4, view, yrot,result_array );
-      thread q4 = thread(set_quadrant_color, 3*WIDTH/4, WIDTH, view, yrot,result_array );
-    
-      q1.join();
-      q2.join();
-      q3.join();
-      q4.join();*/
 
 
     // would it be faster to do this inside the kernel, and then copy over the bitmap in the end?
@@ -220,10 +178,11 @@ if (cudaMalloc(&gpu_lights, sizeof(vec) * LIGHT_NUM)!= cudaSuccess) {
 }
 
 // computes the color for the quadrants
-__global__ void set_quadrant_color(viewport view, vec* result_array, shape** gpu_scene){
+__global__ void set_quadrant_color(viewport* view, vec* result_array, shape** gpu_scene){
   int index_x = threadIdx.x + blockIdx.x * blockDim.x;
   int index_y = threadIdx.y + blockIdx.y * blockDim.y;
-  vec result = raytrace(view.origin(), view.dir(index_x, index_y), 0, gpu_scene);
+  vec result = raytrace(view->origin(), view->dir(index_x, index_y),
+                       0, gpu_scene);
   // Set the pixel color
   result_array[index_x*WIDTH  + index_y] = result;
 }
