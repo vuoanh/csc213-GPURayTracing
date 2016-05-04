@@ -24,6 +24,17 @@
 #define CUDA_CALLABLE_MEMBER
 #endif
 
+// CUDA error checking from http://stackoverflow.com/questions/14038589/what-is-the-canonical-way-to-check-for-errors-using-the-cuda-runtime-ap
+#define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
+
+inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
+{
+   if (code != cudaSuccess) 
+   {
+      fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
+      if (abort) exit(code);
+   }
+}
 
 // Screen size
 #define WIDTH 640
@@ -114,21 +125,20 @@ if (cudaMalloc(&gpu_lights, sizeof(vec) * LIGHT_NUM)!= cudaSuccess) {
     float yrot = (time_ms() - start_time)/5000.0 * M_PI * 2;
     
     // Render the frame to this bitmap
-    bitmap cpu_bmp(WIDTH, HEIGHT);
+    bitmap cpu_bmp;
     bitmap* gpu_bmp;
     vec cpu_result_array[WIDTH][HEIGHT];
     vec* gpu_result_array;
-    
+  
     // Allocate memory for the gpu bitmap and the gpu result array
-    if (cudaMalloc(&gpu_bmp, sizeof(bitmap))!= cudaSuccess) {
-      fprintf( stderr, "Fail to allocate GPU bitmap\n");
-    }
+    gpuErrchk(cudaMalloc(&gpu_bmp, cpu_bmp.size()));
+    
     if (cudaMalloc(&gpu_result_array, sizeof(vec) * WIDTH * HEIGHT)!= cudaSuccess) {
       fprintf( stderr, "Fail to allocate GPU result_array\n");
     }
 
     // Copy memory from the cpu bitmap and result array to the gpu counterparts
-    if(cudaMemcpy(gpu_bmp, &cpu_bmp, sizeof(bitmap), cudaMemcpyHostToDevice) != cudaSuccess) {
+    if(cudaMemcpy(gpu_bmp, &cpu_bmp, cpu_bmp.size(), cudaMemcpyHostToDevice) != cudaSuccess) {
       fprintf( stderr, "Fail to copy bitmap to GPU\n");
     }
     // why are we copying from cpu_result array to gpu?
@@ -147,13 +157,20 @@ if (cudaMalloc(&gpu_lights, sizeof(vec) * LIGHT_NUM)!= cudaSuccess) {
       fprintf( stderr, "Fail to copy viewport to GPU\n");
     }
 
+    size_t blocks_width = (N + BLOCK_WIDTH - 1) / BLOCK_WIDTH;
+    size_t blocks_height = (N + BLOCK_HEIGHT -1) / BLOCK_HEIGHT;
+    dim3 threads2D(BLOCK_WIDTH, BLOCK_HEIGHT);
+    dim3 blocks2D(blocks_width, blocks_height);
+
     int N = WIDTH * HEIGHT;
 
     // a thread for each pixel
-    set_quadrant_color <<<(N + THREADS_PER_BLOCK - 1)/THREADS_PER_BLOCK,
-      THREADS_PER_BLOCK>>> (gpu_viewport, gpu_result_array, gpu_scene);
-    cudaDeviceSynchronize();
+    set_quadrant_color <<<blocks2D, threads2D>>> (gpu_viewport, gpu_result_array, gpu_scene);
 
+    gpuErrchk(cudaPeekAtLastError());
+    gpuErrchk(cudaDeviceSynchronize());
+
+    
 
     // copy result array to CPU
     if(cudaMemcpy(cpu_result_array, gpu_result_array, sizeof(vec) * WIDTH * HEIGHT, cudaMemcpyDeviceToHost)
@@ -181,10 +198,14 @@ if (cudaMalloc(&gpu_lights, sizeof(vec) * LIGHT_NUM)!= cudaSuccess) {
 __global__ void set_quadrant_color(viewport* view, vec* result_array, shape** gpu_scene){
   int index_x = threadIdx.x + blockIdx.x * blockDim.x;
   int index_y = threadIdx.y + blockIdx.y * blockDim.y;
-  vec result = raytrace(view->origin(), view->dir(index_x, index_y),
-                       0, gpu_scene);
+  //vec result = raytrace(view->origin(), view->dir(index_x, index_y),
+  //                     0, gpu_scene);
+
+  vec result =  vec(AMBIENT, AMBIENT, AMBIENT);
+  
   // Set the pixel color
-  result_array[index_x*WIDTH  + index_y] = result;
+  //result_array[index_x*WIDTH  + index_y] = result;
+  result_array[0] = result;
 }
 
 /**
@@ -212,7 +233,7 @@ CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections, shape
   }
   
   // If the ray didn't intersect anything, just return the ambient color
-  if(intersected == NULL) return vec(AMBIENT, AMBIENT, AMBIENT);
+  //if(intersected == NULL) return vec(AMBIENT, AMBIENT, AMBIENT);
 
 
   // Without reflections

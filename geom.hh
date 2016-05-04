@@ -26,8 +26,7 @@ CUDA_CALLABLE_MEMBER shape(vec pos) : _pos(pos),
                    _reflectivity(0.95),
                    _diffusion(0.75), 
                    _spec_intensity(0.9), 
-                   _spec_density(200),
-                   _static_color(true) {}
+                   _spec_density(200) {}
   
   // Getter and setters for the shape's position
 CUDA_CALLABLE_MEMBER  vec get_pos() { return _pos; }
@@ -36,20 +35,12 @@ CUDA_CALLABLE_MEMBER  void set_pos(float x, float y, float z) { _pos = vec(x, y,
   
   // Get the color of this shape at a specific point
  CUDA_CALLABLE_MEMBER vec get_color(vec pos) {
-    if(_static_color) return _color;
-    else return _color_fn(pos);
+    return _color;
   }
   
   // Set this shape to a single static color
  CUDA_CALLABLE_MEMBER void set_color(vec c) {
-    _static_color = true;
     _color = c;
-  }
-  
-  // Supply a function to determine the color of this shape
- CUDA_CALLABLE_MEMBER void set_color(vec (*color_fn)(vec)) {
-    _static_color = false;
-    _color_fn = color_fn;
   }
   
   // Getter and setter for reflectivity
@@ -77,8 +68,6 @@ CUDA_CALLABLE_MEMBER  void set_pos(float x, float y, float z) { _pos = vec(x, y,
 protected:
   vec _pos;
   vec _color;
-  vec (*_color_fn)(vec);  // A function that generates the color at a point
-  bool _static_color;     // If true use a fixed color, otherwise use _color_fn
   float _reflectivity;
   float _diffusion;
   float _spec_intensity;
