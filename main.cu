@@ -49,7 +49,7 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 // Create threads for oversampling
 #define num_over_thread OVERSAMPLE*OVERSAMPLE
 #define THREADS_PER_BLOCK 8
-#define OBJ_NUM 4
+#define OBJ_NUM 3
 #define LIGHT_NUM 2
 using namespace std;
 
@@ -57,16 +57,16 @@ using namespace std;
 void init_scene();
 
 // Trace a ray through the scene to determine its color
-CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections, shape** gpu_scene);
+CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections, sphere* gpu_scene);
 
 // A list of shapes that make up the 3D scene. Initialized by init_scene
-shape* scene[OBJ_NUM];
+sphere scene[OBJ_NUM];
 
 // A list of light positions, all emitting pure white light
 vec lights[LIGHT_NUM];
 
 // computes the color for the quadrants
-__global__ void set_quadrant_color(viewport* view, vec* result_array, shape** gpu_scene);
+__global__ void set_quadrant_color(viewport* view, vec* result_array, sphere* gpu_scene);
 
 /**
  * Entry point for the raytracer
@@ -81,11 +81,11 @@ int main(int argc, char** argv) {
   init_scene();
 
   // GPU shapes
-  shape** gpu_scene;
-  if (cudaMalloc(&gpu_scene, sizeof(shape*) * OBJ_NUM) != cudaSuccess) {
+  sphere* gpu_spheres;
+  if (cudaMalloc(&gpu_spheres, sizeof(sphere) * OBJ_NUM) != cudaSuccess) {
     fprintf( stderr, "Fail to allocate GPU objects\n");
   }
-  if(cudaMemcpy(gpu_scene, scene, sizeof(shape*) * OBJ_NUM, cudaMemcpyHostToDevice) != cudaSuccess) {
+  if(cudaMemcpy(gpu_spheres, scene, sizeof(sphere) * OBJ_NUM, cudaMemcpyHostToDevice) != cudaSuccess) {
     fprintf( stderr, "Fail to copy objects to GPU\n");
   }
 
@@ -158,16 +158,9 @@ if (cudaMalloc(&gpu_lights, sizeof(vec) * LIGHT_NUM)!= cudaSuccess) {
       fprintf( stderr, "Fail to copy viewport to GPU\n");
     }
 
-    //size_t blocks_width = (N + WIDTH - 1) / WIDTH;
-    //size_t blocks_height = (N + HEIGHT -1) / HEIGHT;
-    //dim3 threads2D(WIDTH, HEIGHT);
-    //dim3 blocks2D(blocks_width, blocks_height);
-
-    //int N = WIDTH * HEIGHT;
-
     // a thread for each pixel
     set_quadrant_color <<<(N + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK,
-      THREADS_PER_BLOCK>>> (gpu_viewport, gpu_result_array, gpu_scene);
+      THREADS_PER_BLOCK>>> (gpu_viewport, gpu_result_array, gpu_spheres);
 
     gpuErrchk(cudaPeekAtLastError());
     gpuErrchk(cudaDeviceSynchronize());
@@ -197,14 +190,14 @@ if (cudaMalloc(&gpu_lights, sizeof(vec) * LIGHT_NUM)!= cudaSuccess) {
 }
 
 // computes the color for the quadrants
-__global__ void set_quadrant_color(viewport* view, vec* result_array, shape** gpu_scene){
+__global__ void set_quadrant_color(viewport* view, vec* result_array, sphere* gpu_spheres){
   int index = threadIdx.x + blockIdx.x * blockDim.x;
   int index_x = index % WIDTH;
   int index_y = index / WIDTH;
   if(index_y >= HEIGHT || index_x >= WIDTH || index >= HEIGHT*WIDTH) {
     printf("%d, %d\n", index_x, index_y);
   }
-  vec result = raytrace(view->origin(), view->dir(index_x, index_y), 0, gpu_scene);
+  vec result = raytrace(view->origin(), view->dir(index_x, index_y), 0, gpu_spheres);
   //vec result = vec(AMBIENT, AMBIENT, AMBIENT);
   // Set the pixel color
   result_array[index] = result;
@@ -217,22 +210,21 @@ __global__ void set_quadrant_color(viewport* view, vec* result_array, shape** gp
  * \param reflections   The number of times this ray has been reflected
  * \returns             The color of this ray
  */
-CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections, shape** gpu_scene) {
+CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections, sphere* gpu_spheres) {
   
   // Normalize the direction vector
   dir = dir.normalized();
   
   // Keep track of the closest shape that is intersected by this ray
-  shape* intersected = NULL;
+  sphere* intersected = NULL;
   float intersect_distance = 0;
   
   // Loop over all shapes in the scene to find the closest intersection
   for(int i = 0; i < OBJ_NUM; i++) {
-    float distance = gpu_scene[i]->intersection(origin, dir);
-    float distance = 0;
+    float distance = gpu_spheres[i].intersection(origin, dir);
     if(distance >= 0 && (distance < intersect_distance || intersected == NULL)) {
       intersect_distance = distance;
-      intersected = gpu_scene[i];
+      intersected = &gpu_spheres[i];
     }
   }
   
@@ -322,22 +314,22 @@ void init_scene() {
   sphere* red_sphere = new sphere(vec(60, 50, 0), 50);
   red_sphere->set_color(vec(0.75, 0.125, 0.125));
   red_sphere->set_reflectivity(0.5);
-  scene[0] = red_sphere;
+  scene[0] = *red_sphere;
   
   // Add a green sphere
   sphere* green_sphere = new sphere(vec(-15, 25, -25), 25);
   green_sphere->set_color(vec(0.125, 0.6, 0.125));
   green_sphere->set_reflectivity(0.5);
-  scene[1] = green_sphere;
+  scene[1] = *green_sphere;
   
   // Add a blue sphere
   sphere* blue_sphere = new sphere(vec(-50, 40, 75), 40);
   blue_sphere->set_color(vec(0.125, 0.125, 0.75));
   blue_sphere->set_reflectivity(0.5);
-  scene[2] = blue_sphere;
+  scene[2] = *blue_sphere;
   
   // Add a flat surface
-  plane* surface = new plane(vec(0, 0, 0), vec(0, 1, 0));
+  // plane* surface = new plane(vec(0, 0, 0), vec(0, 1, 0));
   // The following line uses C++'s lambda expressions to create a function
   /*
   surface->set_color([](vec pos) {
@@ -349,10 +341,10 @@ void init_scene() {
       }
     });
   */ 
-  surface->set_diffusion(0.25);
-  surface->set_spec_density(10);
-  surface->set_spec_intensity(0.1);
-  scene[3] = surface;
+  //surface->set_diffusion(0.25);
+  //surface->set_spec_density(10);
+  //surface->set_spec_intensity(0.1);
+  //scene[3] = *surface;
   
   // Add two lights
   lights[0] = vec(-1000, 300, 0);

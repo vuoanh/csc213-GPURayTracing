@@ -85,6 +85,8 @@ public:
    * \param radius  The radius of the sphere
    */
  CUDA_CALLABLE_MEMBER sphere(vec pos, float radius) : shape(pos), _radius(radius) {}
+
+  CUDA_CALLABLE_MEMBER sphere() : shape(vec()), _radius(0) {}
   
   // Getter and setter for the radius
  CUDA_CALLABLE_MEMBER float get_radius() { return _radius; }
