@@ -39,6 +39,7 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 // Screen size
 #define WIDTH 640
 #define HEIGHT 480
+#define N WIDTH*HEIGHT
 
 // Rendering Properties
 #define AMBIENT 0.3         // Ambient illumination
@@ -157,15 +158,16 @@ if (cudaMalloc(&gpu_lights, sizeof(vec) * LIGHT_NUM)!= cudaSuccess) {
       fprintf( stderr, "Fail to copy viewport to GPU\n");
     }
 
-    size_t blocks_width = (N + BLOCK_WIDTH - 1) / BLOCK_WIDTH;
-    size_t blocks_height = (N + BLOCK_HEIGHT -1) / BLOCK_HEIGHT;
-    dim3 threads2D(BLOCK_WIDTH, BLOCK_HEIGHT);
-    dim3 blocks2D(blocks_width, blocks_height);
+    //size_t blocks_width = (N + WIDTH - 1) / WIDTH;
+    //size_t blocks_height = (N + HEIGHT -1) / HEIGHT;
+    //dim3 threads2D(WIDTH, HEIGHT);
+    //dim3 blocks2D(blocks_width, blocks_height);
 
-    int N = WIDTH * HEIGHT;
+    //int N = WIDTH * HEIGHT;
 
     // a thread for each pixel
-    set_quadrant_color <<<blocks2D, threads2D>>> (gpu_viewport, gpu_result_array, gpu_scene);
+    set_quadrant_color <<<(N + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK,
+      THREADS_PER_BLOCK>>> (gpu_viewport, gpu_result_array, gpu_scene);
 
     gpuErrchk(cudaPeekAtLastError());
     gpuErrchk(cudaDeviceSynchronize());
@@ -196,16 +198,16 @@ if (cudaMalloc(&gpu_lights, sizeof(vec) * LIGHT_NUM)!= cudaSuccess) {
 
 // computes the color for the quadrants
 __global__ void set_quadrant_color(viewport* view, vec* result_array, shape** gpu_scene){
-  int index_x = threadIdx.x + blockIdx.x * blockDim.x;
-  int index_y = threadIdx.y + blockIdx.y * blockDim.y;
-  //vec result = raytrace(view->origin(), view->dir(index_x, index_y),
-  //                     0, gpu_scene);
-
-  vec result =  vec(AMBIENT, AMBIENT, AMBIENT);
-  
+  int index = threadIdx.x + blockIdx.x * blockDim.x;
+  int index_x = index % WIDTH;
+  int index_y = index / WIDTH;
+  if(index_y >= HEIGHT || index_x >= WIDTH || index >= HEIGHT*WIDTH) {
+    printf("%d, %d\n", index_x, index_y);
+  }
+  vec result = raytrace(view->origin(), view->dir(index_x, index_y), 0, gpu_scene);
+  //vec result = vec(AMBIENT, AMBIENT, AMBIENT);
   // Set the pixel color
-  //result_array[index_x*WIDTH  + index_y] = result;
-  result_array[0] = result;
+  result_array[index] = result;
 }
 
 /**
@@ -216,6 +218,7 @@ __global__ void set_quadrant_color(viewport* view, vec* result_array, shape** gp
  * \returns             The color of this ray
  */
 CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections, shape** gpu_scene) {
+  
   // Normalize the direction vector
   dir = dir.normalized();
   
@@ -226,6 +229,7 @@ CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections, shape
   // Loop over all shapes in the scene to find the closest intersection
   for(int i = 0; i < OBJ_NUM; i++) {
     float distance = gpu_scene[i]->intersection(origin, dir);
+    float distance = 0;
     if(distance >= 0 && (distance < intersect_distance || intersected == NULL)) {
       intersect_distance = distance;
       intersected = gpu_scene[i];
@@ -233,8 +237,7 @@ CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections, shape
   }
   
   // If the ray didn't intersect anything, just return the ambient color
-  //if(intersected == NULL) return vec(AMBIENT, AMBIENT, AMBIENT);
-
+  if(intersected == NULL) return vec(AMBIENT, AMBIENT, AMBIENT);
 
   // Without reflections
   
