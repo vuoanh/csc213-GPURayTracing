@@ -137,6 +137,7 @@ public:
    * \param norm  A vector that points perpendicular to the face of this plane
    */
  CUDA_CALLABLE_MEMBER plane(vec pos, vec norm) : shape(pos), _norm(norm) {}
+  CUDA_CALLABLE_MEMBER plane() : shape(vec()), _norm(vec()) {}
   
   // Getter and setter for the plane normal vector
  CUDA_CALLABLE_MEMBER vec get_norm() { return _norm; }

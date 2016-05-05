@@ -57,16 +57,19 @@ using namespace std;
 void init_scene();
 
 // Trace a ray through the scene to determine its color
-CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections, sphere* gpu_scene);
+CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections, sphere* gpu_scene, plane* gpu_plane);
 
 // A list of shapes that make up the 3D scene. Initialized by init_scene
 sphere scene[OBJ_NUM];
+
+// A plane
+plane cpu_plane;
 
 // A list of light positions, all emitting pure white light
 vec lights[LIGHT_NUM];
 
 // computes the color for the quadrants
-__global__ void set_quadrant_color(viewport* view, vec* result_array, sphere* gpu_scene);
+__global__ void set_quadrant_color(viewport* view, sphere* gpu_scene, plane* gpu_plane, bitmap* gpu_bmp);
 
 /**
  * Entry point for the raytracer
@@ -89,6 +92,15 @@ int main(int argc, char** argv) {
     fprintf( stderr, "Fail to copy objects to GPU\n");
   }
 
+  // GPU plane
+  plane* gpu_plane;
+  if (cudaMalloc(&gpu_plane, sizeof(plane)) != cudaSuccess) {
+    fprintf( stderr, "Fail to allocate GPU plane\n");
+  }
+  if(cudaMemcpy(gpu_plane, &cpu_plane, sizeof(plane), cudaMemcpyHostToDevice) != cudaSuccess) {
+    fprintf( stderr, "Fail to copy plane to GPU\n");
+  }
+  
     
   // GPU lights
  vec* gpu_lights;
@@ -133,20 +145,21 @@ if (cudaMalloc(&gpu_lights, sizeof(vec) * LIGHT_NUM)!= cudaSuccess) {
   
     // Allocate memory for the gpu bitmap and the gpu result array
     gpuErrchk(cudaMalloc(&gpu_bmp, cpu_bmp.size()));
-    
+    /*
     if (cudaMalloc(&gpu_result_array, sizeof(vec) * WIDTH * HEIGHT)!= cudaSuccess) {
       fprintf( stderr, "Fail to allocate GPU result_array\n");
     }
-
+    */
     // Copy memory from the cpu bitmap and result array to the gpu counterparts
     if(cudaMemcpy(gpu_bmp, &cpu_bmp, cpu_bmp.size(), cudaMemcpyHostToDevice) != cudaSuccess) {
       fprintf( stderr, "Fail to copy bitmap to GPU\n");
     }
+    /*
     // why are we copying from cpu_result array to gpu?
     if(cudaMemcpy(gpu_result_array, cpu_result_array, sizeof(vec) * WIDTH * HEIGHT, cudaMemcpyHostToDevice) != cudaSuccess) {
       fprintf( stderr, "Fail to copy result_array to GPU\n");
     }
-
+    */
     // allocating necessary variables for raytrace
 
     // viewport
@@ -160,28 +173,34 @@ if (cudaMalloc(&gpu_lights, sizeof(vec) * LIGHT_NUM)!= cudaSuccess) {
 
     // a thread for each pixel
     set_quadrant_color <<<(N + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK,
-      THREADS_PER_BLOCK>>> (gpu_viewport, gpu_result_array, gpu_spheres);
+      THREADS_PER_BLOCK>>> (gpu_viewport, gpu_spheres, gpu_plane, gpu_bmp);
 
     gpuErrchk(cudaPeekAtLastError());
     gpuErrchk(cudaDeviceSynchronize());
 
     
-
+    /*
     // copy result array to CPU
     if(cudaMemcpy(cpu_result_array, gpu_result_array, sizeof(vec) * WIDTH * HEIGHT, cudaMemcpyDeviceToHost)
        != cudaSuccess) {
       fprintf( stderr, "Fail to copy result_array to CPU\n");
     }
-
+    */
+    
+     // copy result array to CPU
+    if(cudaMemcpy(&cpu_bmp, gpu_bmp, cpu_bmp.size(), cudaMemcpyDeviceToHost)
+       != cudaSuccess) {
+      fprintf( stderr, "Fail to copy result_array to CPU\n");
+    }
 
     // would it be faster to do this inside the kernel, and then copy over the bitmap in the end?
     // instead of writing to an array and copying that back and then running these 2 for loops?
-    for (int x = 0 ; x < WIDTH; x++){
+    /*for (int x = 0 ; x < WIDTH; x++){
       for(int y = 0; y < HEIGHT; y++){
         cpu_bmp.set(x, y, cpu_result_array[x][y]);
       }
     }
-
+    */
     // Display the rendered frame
     ui.display(cpu_bmp);
   }
@@ -190,17 +209,18 @@ if (cudaMalloc(&gpu_lights, sizeof(vec) * LIGHT_NUM)!= cudaSuccess) {
 }
 
 // computes the color for the quadrants
-__global__ void set_quadrant_color(viewport* view, vec* result_array, sphere* gpu_spheres){
+__global__ void set_quadrant_color(viewport* view, sphere* gpu_spheres, plane* gpu_plane, bitmap* gpu_bmp){
   int index = threadIdx.x + blockIdx.x * blockDim.x;
   int index_x = index % WIDTH;
   int index_y = index / WIDTH;
   if(index_y >= HEIGHT || index_x >= WIDTH || index >= HEIGHT*WIDTH) {
     printf("%d, %d\n", index_x, index_y);
   }
-  vec result = raytrace(view->origin(), view->dir(index_x, index_y), 0, gpu_spheres);
+  vec result = raytrace(view->origin(), view->dir(index_x, index_y), 0, gpu_spheres, gpu_plane);
   //vec result = vec(AMBIENT, AMBIENT, AMBIENT);
   // Set the pixel color
-  result_array[index] = result;
+  gpu_bmp->set(index_x, index_y, result);
+  // result_array[index] = result;
 }
 
 /**
@@ -210,23 +230,35 @@ __global__ void set_quadrant_color(viewport* view, vec* result_array, sphere* gp
  * \param reflections   The number of times this ray has been reflected
  * \returns             The color of this ray
  */
-CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections, sphere* gpu_spheres) {
+CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections, sphere* gpu_spheres, plane* gpu_plane) {
   
   // Normalize the direction vector
   dir = dir.normalized();
   
   // Keep track of the closest shape that is intersected by this ray
-  sphere* intersected = NULL;
+  shape* intersected = NULL;
   float intersect_distance = 0;
+
+  sphere current_sphere;
+  plane current_plane;
   
   // Loop over all shapes in the scene to find the closest intersection
-  for(int i = 0; i < OBJ_NUM; i++) {
-    float distance = gpu_spheres[i].intersection(origin, dir);
-    if(distance >= 0 && (distance < intersect_distance || intersected == NULL)) {
+  for(int i = 0; i < OBJ_NUM ; i++) {
+    current_sphere = gpu_spheres[i];
+    float distance = current_sphere.intersection(origin, dir);
+     if(distance >= 0 && (distance < intersect_distance || intersected == NULL)) {
       intersect_distance = distance;
-      intersected = &gpu_spheres[i];
-    }
+       intersected = &current_sphere;
+     }
   }
+    current_plane = *gpu_plane;
+    float distance = current_plane.intersection(origin, dir);
+     if(distance >= 0 && (distance < intersect_distance || intersected == NULL)) {
+      intersect_distance = distance;
+       intersected = &current_plane;
+     }
+  
+
   
   // If the ray didn't intersect anything, just return the ambient color
   if(intersected == NULL) return vec(AMBIENT, AMBIENT, AMBIENT);
@@ -329,8 +361,8 @@ void init_scene() {
   scene[2] = *blue_sphere;
   
   // Add a flat surface
-  // plane* surface = new plane(vec(0, 0, 0), vec(0, 1, 0));
-  // The following line uses C++'s lambda expressions to create a function
+   plane* surface = new plane(vec(0, 0, 0), vec(0, 1, 0));
+   // The following line uses C++'s lambda expressions to create a function
   /*
   surface->set_color([](vec pos) {
       // This function produces a grid pattern on the plane
@@ -341,9 +373,10 @@ void init_scene() {
       }
     });
   */ 
-  //surface->set_diffusion(0.25);
-  //surface->set_spec_density(10);
-  //surface->set_spec_intensity(0.1);
+  surface->set_diffusion(0.25);
+  surface->set_spec_density(10);
+  surface->set_spec_intensity(0.1);
+  cpu_plane = *surface;
   //scene[3] = *surface;
   
   // Add two lights
