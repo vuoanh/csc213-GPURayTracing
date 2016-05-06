@@ -69,7 +69,7 @@ plane cpu_plane;
 vec lights[LIGHT_NUM];
 
 // computes the color for the quadrants
-__global__ void set_quadrant_color(viewport* view, sphere* gpu_scene, plane* gpu_plane, bitmap* gpu_bmp, int* gpu_oversample);
+__global__ void set_quadrant_color(viewport* view, sphere* gpu_scene, plane* gpu_plane, bitmap* gpu_bmp, int* gpu_oversample, float* gpu_yrot);
 
 /**
  * Entry point for the raytracer
@@ -136,6 +136,13 @@ if (cudaMalloc(&gpu_lights, sizeof(vec) * LIGHT_NUM)!= cudaSuccess) {
     
     // Rotate the camera around the scene once every five seconds
     float yrot = (time_ms() - start_time)/5000.0 * M_PI * 2;
+    float* gpu_yrot;
+    if (cudaMalloc(&gpu_yrot, sizeof(float))!= cudaSuccess) {
+      fprintf( stderr, "Fail to allocate GPU yrot\n");
+    }
+    if(cudaMemcpy(gpu_yrot, &yrot, sizeof(float), cudaMemcpyHostToDevice) != cudaSuccess) {
+      fprintf( stderr, "Fail to copy yrot to GPU\n");
+    }
     
     // Render the frame to this bitmap
     bitmap cpu_bmp;
@@ -182,7 +189,7 @@ if (cudaMalloc(&gpu_lights, sizeof(vec) * LIGHT_NUM)!= cudaSuccess) {
     
     // a thread for each pixel
     set_quadrant_color <<<(N + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK,
-      THREADS_PER_BLOCK>>> (gpu_viewport, gpu_spheres, gpu_plane, gpu_bmp, gpu_oversample);
+      THREADS_PER_BLOCK>>> (gpu_viewport, gpu_spheres, gpu_plane, gpu_bmp, gpu_oversample, gpu_yrot);
 
     gpuErrchk(cudaPeekAtLastError());
     gpuErrchk(cudaDeviceSynchronize());
@@ -218,7 +225,7 @@ if (cudaMalloc(&gpu_lights, sizeof(vec) * LIGHT_NUM)!= cudaSuccess) {
 }
 
 // computes the color for the quadrants
-__global__ void set_quadrant_color(viewport* view, sphere* gpu_spheres, plane* gpu_plane, bitmap* gpu_bmp, int* gpu_oversample){
+__global__ void set_quadrant_color(viewport* view, sphere* gpu_spheres, plane* gpu_plane, bitmap* gpu_bmp, int* gpu_oversample, float* gpu_yrot){
   int index = threadIdx.x + blockIdx.x * blockDim.x;
   int index_x = index % WIDTH;
   int index_y = index / WIDTH;
@@ -238,7 +245,7 @@ __global__ void set_quadrant_color(viewport* view, sphere* gpu_spheres, plane* g
       // Raytrace from the viewport origin through the viewing 
 
 
-      result += raytrace(view->origin(), view->dir(index_x + x_off, index_y + y_off), 0, gpu_spheres, gpu_plane);
+      result += raytrace(view->origin().yrotated(*gpu_yrot), view->dir(index_x + x_off, index_y + y_off).yrotated(*gpu_yrot), 0, gpu_spheres, gpu_plane);
       //vec result = vec(AMBIENT, AMBIENT, AMBIENT);
       // Set the pixel color
     }
