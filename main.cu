@@ -69,7 +69,7 @@ plane cpu_plane;
 vec lights[LIGHT_NUM];
 
 // computes the color for the quadrants
-__global__ void set_quadrant_color(viewport* view, sphere* gpu_scene, plane* gpu_plane, bitmap* gpu_bmp);
+__global__ void set_quadrant_color(viewport* view, sphere* gpu_scene, plane* gpu_plane, bitmap* gpu_bmp, int* gpu_oversample);
 
 /**
  * Entry point for the raytracer
@@ -140,8 +140,6 @@ if (cudaMalloc(&gpu_lights, sizeof(vec) * LIGHT_NUM)!= cudaSuccess) {
     // Render the frame to this bitmap
     bitmap cpu_bmp;
     bitmap* gpu_bmp;
-    vec cpu_result_array[WIDTH][HEIGHT];
-    vec* gpu_result_array;
   
     // Allocate memory for the gpu bitmap and the gpu result array
     gpuErrchk(cudaMalloc(&gpu_bmp, cpu_bmp.size()));
@@ -171,9 +169,20 @@ if (cudaMalloc(&gpu_lights, sizeof(vec) * LIGHT_NUM)!= cudaSuccess) {
       fprintf( stderr, "Fail to copy viewport to GPU\n");
     }
 
+    int oversample = OVERSAMPLE;
+    int* gpu_oversample;
+    if (cudaMalloc(&gpu_oversample, sizeof(int))!= cudaSuccess) {
+      fprintf( stderr, "Fail to allocate GPU oversample\n");
+    }
+    if(cudaMemcpy(gpu_oversample, &oversample, sizeof(int), cudaMemcpyHostToDevice) != cudaSuccess) {
+      fprintf( stderr, "Fail to copy int to GPU\n");
+    }
+
+
+    
     // a thread for each pixel
     set_quadrant_color <<<(N + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK,
-      THREADS_PER_BLOCK>>> (gpu_viewport, gpu_spheres, gpu_plane, gpu_bmp);
+      THREADS_PER_BLOCK>>> (gpu_viewport, gpu_spheres, gpu_plane, gpu_bmp, gpu_oversample);
 
     gpuErrchk(cudaPeekAtLastError());
     gpuErrchk(cudaDeviceSynchronize());
@@ -209,16 +218,33 @@ if (cudaMalloc(&gpu_lights, sizeof(vec) * LIGHT_NUM)!= cudaSuccess) {
 }
 
 // computes the color for the quadrants
-__global__ void set_quadrant_color(viewport* view, sphere* gpu_spheres, plane* gpu_plane, bitmap* gpu_bmp){
+__global__ void set_quadrant_color(viewport* view, sphere* gpu_spheres, plane* gpu_plane, bitmap* gpu_bmp, int* gpu_oversample){
   int index = threadIdx.x + blockIdx.x * blockDim.x;
   int index_x = index % WIDTH;
   int index_y = index / WIDTH;
   if(index_y >= HEIGHT || index_x >= WIDTH || index >= HEIGHT*WIDTH) {
     printf("%d, %d\n", index_x, index_y);
   }
-  vec result = raytrace(view->origin(), view->dir(index_x, index_y), 0, gpu_spheres, gpu_plane);
-  //vec result = vec(AMBIENT, AMBIENT, AMBIENT);
-  // Set the pixel color
+  vec result;
+  for(int y_sample = 0; y_sample < (*gpu_oversample); y_sample++) {
+    // The y offset is half way between the edges of this subpixel
+    float y_off = (y_sample + 0.5) / (*gpu_oversample);
+          
+    // Loop over x subpixel positions
+    for(int x_sample = 0; x_sample < (*gpu_oversample); x_sample++) {
+      // The x offset is half way between the edges of this subpixel
+      float x_off = (x_sample + 0.5) / (*gpu_oversample);
+      
+      // Raytrace from the viewport origin through the viewing 
+
+
+      result += raytrace(view->origin(), view->dir(index_x + x_off, index_y + y_off), 0, gpu_spheres, gpu_plane);
+      //vec result = vec(AMBIENT, AMBIENT, AMBIENT);
+      // Set the pixel color
+    }
+  }
+
+  result /= (*gpu_oversample)*(*gpu_oversample);
   gpu_bmp->set(index_x, index_y, result);
   /*
   if(result.x() != 0 || result.y() != 0 || result.z() != 0) {
@@ -245,7 +271,6 @@ CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections, spher
   // Keep track of the closest shape that is intersected by this ray
   int intersected = 0;
   float intersect_distance = 0;
-  sphere* closest_sphere;
   plane current_plane;
   sphere current_sphere;
   int plane_closer = 0;
@@ -260,8 +285,7 @@ CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections, spher
       intersect_distance = distance;
       intersected = 1;
       sphere_index = i;
-      printf("not in the loop \n");
-    }
+     }
   }
   
   // for the plane
