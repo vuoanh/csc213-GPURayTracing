@@ -220,6 +220,13 @@ __global__ void set_quadrant_color(viewport* view, sphere* gpu_spheres, plane* g
   //vec result = vec(AMBIENT, AMBIENT, AMBIENT);
   // Set the pixel color
   gpu_bmp->set(index_x, index_y, result);
+  /*
+  if(result.x() != 0 || result.y() != 0 || result.z() != 0) {
+    rgb32 color = gpu_bmp->get(index_x, index_y);
+    printf("%f, %f, %f\n", result.x(), result.y(), result.z());
+    printf("%d, %d, %d\n", color.red, color.green, color.blue);
+  }
+  */
   // result_array[index] = result;
 }
 
@@ -236,40 +243,57 @@ CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections, spher
   dir = dir.normalized();
   
   // Keep track of the closest shape that is intersected by this ray
-  shape* intersected = NULL;
+  int intersected = 0;
   float intersect_distance = 0;
-
-  sphere current_sphere;
+  sphere* closest_sphere;
   plane current_plane;
+  sphere current_sphere;
+  int plane_closer = 0;
+  int sphere_index = 0;
   
-  // Loop over all shapes in the scene to find the closest intersection
+  // Loop over all spheres in the scene to find the closest intersection
+ 
   for(int i = 0; i < OBJ_NUM ; i++) {
     current_sphere = gpu_spheres[i];
     float distance = current_sphere.intersection(origin, dir);
-     if(distance >= 0 && (distance < intersect_distance || intersected == NULL)) {
+    if(distance >= 0 && (distance < intersect_distance || !intersected)) {
       intersect_distance = distance;
-       intersected = &current_sphere;
-     }
+      intersected = 1;
+      sphere_index = i;
+      printf("not in the loop \n");
+    }
   }
-    current_plane = *gpu_plane;
-    float distance = current_plane.intersection(origin, dir);
-     if(distance >= 0 && (distance < intersect_distance || intersected == NULL)) {
-      intersect_distance = distance;
-       intersected = &current_plane;
-     }
   
+  // for the plane
+  current_plane = *gpu_plane;
+  float distance = current_plane.intersection(origin, dir);
+  if(distance >= 0 && (distance < intersect_distance || !intersected)) {
+    intersected = 1;
+    intersect_distance = distance;
+    plane_closer = 1;
+    //intersected = &current_plane;
+  }
+
+   if(!intersected)
+      return vec(AMBIENT, AMBIENT, AMBIENT);
 
   
   // If the ray didn't intersect anything, just return the ambient color
-  if(intersected == NULL) return vec(AMBIENT, AMBIENT, AMBIENT);
-
+  // if() return vec(AMBIENT, AMBIENT, AMBIENT);
   // Without reflections
-  
+
   // Compute the point where the intersection occurred
   vec intersection = origin + dir * intersect_distance;
   
   // Otherwise just return the color of the object
-  return intersected->get_color(intersection);
+  if (plane_closer) {
+    return current_plane.get_color(intersection);
+  }
+  else {
+    return gpu_spheres[sphere_index].get_color(intersection);
+  }
+  
+  // return intersected->get_color(intersection);
 
   // With reflections
 
@@ -352,13 +376,13 @@ void init_scene() {
   sphere* green_sphere = new sphere(vec(-15, 25, -25), 25);
   green_sphere->set_color(vec(0.125, 0.6, 0.125));
   green_sphere->set_reflectivity(0.5);
-  scene[1] = *green_sphere;
+  scene[2] = *green_sphere;
   
   // Add a blue sphere
   sphere* blue_sphere = new sphere(vec(-50, 40, 75), 40);
   blue_sphere->set_color(vec(0.125, 0.125, 0.75));
   blue_sphere->set_reflectivity(0.5);
-  scene[2] = *blue_sphere;
+  scene[1] = *blue_sphere;
   
   // Add a flat surface
    plane* surface = new plane(vec(0, 0, 0), vec(0, 1, 0));

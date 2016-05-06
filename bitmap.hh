@@ -19,7 +19,7 @@ struct rgb32 {
   uint8_t blue;
   uint8_t green;
   uint8_t red;
-};
+} __attribute__((packed));
 
 #define WIDTH 640
 #define HEIGHT 480
@@ -47,9 +47,13 @@ public:
   // Set the color at a given location
   CUDA_CALLABLE_MEMBER void set(size_t x, size_t y, vec c) {
     _data[y*WIDTH+x].alpha = 0;
-    _data[y*WIDTH+x].blue = (uint8_t)fmax(0, fmin(255, 255*c.x()));
+    _data[y*WIDTH+x].blue = (uint8_t)fmax(0, fmin(255, 255*c.z()));
     _data[y*WIDTH+x].green = (uint8_t)fmax(0, fmin(255, 255*c.y()));
-    _data[y*WIDTH+x].red = (uint8_t)fmax(0, fmin(255, 255*c.z()));
+    _data[y*WIDTH+x].red = (uint8_t)fmax(0, fmin(255, 255*c.x()));
+  }
+
+  CUDA_CALLABLE_MEMBER rgb32 get(size_t x, size_t y) {
+    return _data[y*WIDTH+x];
   }
   
 private:
