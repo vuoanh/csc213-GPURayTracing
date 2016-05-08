@@ -58,7 +58,7 @@ void init_scene();
 
 // Trace a ray through the scene to determine its color
 CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections, sphere* gpu_spheres,
-                                  plane* gpu_plane);
+                                  plane* gpu_plane, vec* gpu_lights);
 
 // A list of shapes that make up the 3D scene. Initialized by init_scene
 sphere scene[OBJ_NUM];
@@ -71,7 +71,7 @@ vec lights[LIGHT_NUM];
 
 // computes the color for the quadrants
 __global__ void set_quadrant_color(viewport* view, sphere* gpu_scene, plane* gpu_plane,
-                                   bitmap* gpu_bmp, int* gpu_oversample, float* gpu_yrot);
+                                   bitmap* gpu_bmp, int* gpu_oversample, float* gpu_yrot, vec* gpu_lights);
 
 /**
  * Entry point for the raytracer
@@ -105,8 +105,8 @@ int main(int argc, char** argv) {
   
     
   // GPU lights
- vec* gpu_lights;
-if (cudaMalloc(&gpu_lights, sizeof(vec) * LIGHT_NUM)!= cudaSuccess) {
+  vec* gpu_lights;
+  if (cudaMalloc(&gpu_lights, sizeof(vec) * LIGHT_NUM)!= cudaSuccess) {
     fprintf( stderr, "Fail to allocate GPU lights\n");
   }
   if(cudaMemcpy(gpu_lights, lights,sizeof(vec) * LIGHT_NUM, cudaMemcpyHostToDevice) != cudaSuccess) {
@@ -178,12 +178,10 @@ if (cudaMalloc(&gpu_lights, sizeof(vec) * LIGHT_NUM)!= cudaSuccess) {
     if(cudaMemcpy(gpu_oversample, &oversample, sizeof(int), cudaMemcpyHostToDevice) != cudaSuccess) {
       fprintf( stderr, "Fail to copy int to GPU\n");
     }
-
-
-    
+   
     // a thread for each pixel
     set_quadrant_color <<<(N + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK,
-      THREADS_PER_BLOCK>>> (gpu_viewport, gpu_spheres, gpu_plane, gpu_bmp, gpu_oversample, gpu_yrot);
+      THREADS_PER_BLOCK>>> (gpu_viewport, gpu_spheres, gpu_plane, gpu_bmp, gpu_oversample, gpu_yrot, gpu_lights);
 
     gpuErrchk(cudaPeekAtLastError());
     gpuErrchk(cudaDeviceSynchronize());
@@ -211,7 +209,7 @@ if (cudaMalloc(&gpu_lights, sizeof(vec) * LIGHT_NUM)!= cudaSuccess) {
 }
 
 // computes the color for the quadrants
-__global__ void set_quadrant_color(viewport* view, sphere* gpu_spheres, plane* gpu_plane, bitmap* gpu_bmp, int* gpu_oversample, float* gpu_yrot){
+__global__ void set_quadrant_color(viewport* view, sphere* gpu_spheres, plane* gpu_plane, bitmap* gpu_bmp, int* gpu_oversample, float* gpu_yrot, vec* gpu_lights){
   int index = threadIdx.x + blockIdx.x * blockDim.x;
   int index_x = index % WIDTH;
   int index_y = index / WIDTH;
@@ -229,9 +227,7 @@ __global__ void set_quadrant_color(viewport* view, sphere* gpu_spheres, plane* g
       float x_off = (x_sample + 0.5) / (*gpu_oversample);
       
       // Raytrace from the viewport origin through the viewing 
-
-
-      result += raytrace(view->origin().yrotated(*gpu_yrot), view->dir(index_x + x_off, index_y + y_off).yrotated(*gpu_yrot), 0, gpu_spheres, gpu_plane);
+      result += raytrace(view->origin().yrotated(*gpu_yrot), view->dir(index_x + x_off, index_y + y_off).yrotated(*gpu_yrot), 0, gpu_spheres, gpu_plane, gpu_lights);
       //vec result = vec(AMBIENT, AMBIENT, AMBIENT);
       // Set the pixel color
     }
@@ -239,130 +235,30 @@ __global__ void set_quadrant_color(viewport* view, sphere* gpu_spheres, plane* g
 
   result /= (*gpu_oversample)*(*gpu_oversample);
   gpu_bmp->set(index_x, index_y, result);
-  /*
-  if(result.x() != 0 || result.y() != 0 || result.z() != 0) {
-    rgb32 color = gpu_bmp->get(index_x, index_y);
-    printf("%f, %f, %f\n", result.x(), result.y(), result.z());
-    printf("%d, %d, %d\n", color.red, color.green, color.blue);
-  }
-  */
-  // result_array[index] = result;
+
 }
 
-/**
- * Follow a ray backwards through the scene and return the ray's color
- * \param origin        The origin of the ray
- * \param dir           The direction of the ray
- * \param reflections   The number of times this ray has been reflected
- * \returns             The color of this ray
- */
-
-/*
 CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections,
-                                  sphere* gpu_spheres, plane* gpu_plane) {
-  
-  // Normalize the direction vector
-  dir = dir.normalized();
+                                  sphere* gpu_spheres, plane* gpu_plane, vec* gpu_lights) {
   
   // Keep track of the closest shape that is intersected by this ray
-  int intersected = 0;
-  float intersect_distance = 0;
   plane current_plane;
   sphere current_sphere;
-  int plane_closer = 0;
-  int sphere_index = 0;
-  
-  // Loop over all spheres in the scene to find the closest intersection
- 
-  for(int i = 0; i < OBJ_NUM ; i++) {
-    current_sphere = gpu_spheres[i];
-    float distance = current_sphere.intersection(origin, dir);
-    if(distance >= 0 && (distance < intersect_distance || !intersected)) {
-      intersect_distance = distance;
-      intersected = 1;
-      sphere_index = i;
-    }
-  }
-  
-  // for the plane
-  current_plane = *gpu_plane;
-  float distance = current_plane.intersection(origin, dir);
-  if(distance >= 0 && (distance < intersect_distance || !intersected)) {
-    intersected = 2;
-    intersect_distance = distance;
-    plane_closer = 1;
-    //intersected = &current_plane;
-  }
-
-  if(!intersected)
-    return vec(AMBIENT, AMBIENT, AMBIENT);
-
-  vec intersection = origin + dir * (intersect_distance - EPSILON);
-
-  vec n;
-  vec result;
-  
-  // Initialize the result color to the ambient light reflected in the shapes color
-  if(intersected == 1) {
-    result = gpu_spheres[sphere_index].get_color(intersection) * AMBIENT;
-  }
-  else {
-    result = current_plane.get_color(intersection) * AMBIENT;
-  }
-  
-  // Add recursive reflections, unless we're at the recursion bound
-  if(reflections < MAX_REFLECTIONS) {
-
-    
-    // Find the normal at the intersection point
-    if(intersected == 1) {
-      n = gpu_spheres[sphere_index].normal(intersection);
-    }
-    else {
-      n = current_plane.normal(intersection);
-    }
-
-    // Reflect the vector across the normal
-    vec new_dir = dir - n * 2.0 * n.dot(dir);
-      
-    // Compute the reflected color by recursively raytracing from this point
-    vec reflected = raytrace(intersection, new_dir, reflections + 1, gpu_spheres, gpu_plane);
-  
-    // Add the reflection to the result, tinted by the color of the shape
-    if(intersected == 1) {
-      result += reflected.hadamard(gpu_spheres[sphere_index].get_color(intersection)) *
-        gpu_spheres[sphere_index].get_reflectivity();
-    }
-    else {
-      result += reflected.hadamard(current_plane.get_color(intersection)) *
-        current_plane.get_reflectivity();
-    }
-  }
-  return result;
-}
-*/
-CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections,
-                                  sphere* gpu_spheres, plane* gpu_plane) {
-  
-  // Keep track of the closest shape that is intersected by this ray
-  int intersected = 0;
-  float intersect_distance = 0;
-  plane current_plane;
-  sphere current_sphere;
-  int plane_closer = 0;
-  int sphere_index = 0;
   vec final_result;
   vec intersection = origin;
+  vec current_light;
 
   while(reflections < MAX_REFLECTIONS) {
-
+    int plane_closer = 0;
+    int sphere_index = 0;
+    int intersected = 0;
+    float intersect_distance = 0;
     origin = intersection;
   
     // Normalize the direction vector
     dir = dir.normalized();
   
     // Loop over all spheres in the scene to find the closest intersection
- 
     for(int i = 0; i < OBJ_NUM ; i++) {
       current_sphere = gpu_spheres[i];
       float distance = current_sphere.intersection(origin, dir);
@@ -388,30 +284,25 @@ CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections,
 
     intersection = origin + dir * (intersect_distance - EPSILON);
 
+    
     vec n;
     vec result;
-  
+    
     // Initialize the result color to the ambient light reflected in the shapes color
-    if(intersected == 1) {
+    if(!plane_closer) {
       result = gpu_spheres[sphere_index].get_color(origin) * AMBIENT;
+      n = (gpu_spheres[sphere_index].get_pos() - origin).normalized();
     }
     else {
       result = current_plane.get_color(origin) * AMBIENT;
+      n = current_plane.get_norm();
     }
-
-    // Find the normal at the intersection point
-    if(intersected == 1) {
-      n = gpu_spheres[sphere_index].normal(origin);
-    }
-    else {
-      n = current_plane.normal(origin);
-    }
-
+  
     // Reflect the vector across the normal
     dir = dir - n * 2.0 * n.dot(dir);
       
     // Add the reflection to the result, tinted by the color of the shape
-    if(intersected == 1) {
+    if(!plane_closer) {
       final_result += result.hadamard(gpu_spheres[sphere_index].get_color(origin)) *
         gpu_spheres[sphere_index].get_reflectivity();
     }
@@ -419,7 +310,54 @@ CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections,
       final_result += result.hadamard(current_plane.get_color(origin)) *
         current_plane.get_reflectivity();
     }
+
+    for(int i=0; i < 2; i++) {
+      current_light = gpu_lights[i];
+      bool in_shadow = false;
+      // Create a unit vector from the intersection to the light source
+      vec shadow_dir = (current_light - intersection).normalized();
+
+      for(int i = 0; i < OBJ_NUM ; i++) {
+        current_sphere = gpu_spheres[i];
+        if(current_sphere.intersection(intersection, shadow_dir) >= 0) {
+          in_shadow = true;
+          break;
+        }
+      }
+
+      // for the plane
+      current_plane = *gpu_plane;
+      if(current_plane.intersection(intersection, shadow_dir) >= 0) {
+        in_shadow = true;
+      }
+      
+      
+      // If there is a clear path to the light, add illumination
+      if(!in_shadow) {
+        vec bisector = (shadow_dir - dir).normalized();
+        if(!plane_closer) {
+          float diffuse_intensity = gpu_spheres[sphere_index].get_diffusion() * fmax(0, n.dot(shadow_dir));     
+          // Add diffuse lighting tinted by the color of the shape
+          final_result += gpu_spheres[sphere_index].get_color(intersection) * diffuse_intensity;
+          float specular_intensity = gpu_spheres[sphere_index].get_spec_intensity() *
+            fmax(0, pow(n.dot(bisector), (int)gpu_spheres[sphere_index].get_spec_density()));
+        }
+        else {
+          float diffuse_intensity = current_plane.get_diffusion() * fmax(0, n.dot(shadow_dir));     
+          // Add diffuse lighting tinted by the color of the shape
+          final_result += current_plane.get_color(intersection) * diffuse_intensity;
+          float specular_intensity = current_plane.get_spec_intensity() *
+            fmax(0, pow(n.dot(bisector), (int)current_plane.get_spec_density()));
+        }
+      
+        // Add specular highlights
+        result += vec(1.0, 1.0, 1.0) * specular_intensity;
+        
+      }
+    }
+     
     reflections++;
+    
   }
   
   return final_result;

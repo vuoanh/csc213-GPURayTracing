@@ -90,6 +90,7 @@ public:
   
   // Getter and setter for the radius
  CUDA_CALLABLE_MEMBER float get_radius() { return _radius; }
+   CUDA_CALLABLE_MEMBER vec get_pos() { return _pos; }
  CUDA_CALLABLE_MEMBER void set_radius(float r) { _radius = r; }
   
   // Intersection calculation
