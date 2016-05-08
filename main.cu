@@ -247,7 +247,6 @@ CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections,
   vec final_result;
   vec intersection = origin;
   vec current_light;
-
   while(reflections < MAX_REFLECTIONS) {
     int plane_closer = 0;
     int sphere_index = 0;
@@ -262,7 +261,7 @@ CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections,
     for(int i = 0; i < OBJ_NUM ; i++) {
       current_sphere = gpu_spheres[i];
       float distance = current_sphere.intersection(origin, dir);
-      if(distance >= 0 && (distance < intersect_distance || !intersected)) {
+        if(distance >= 0 && (distance < intersect_distance || !intersected)) {
         intersect_distance = distance;
         intersected = 1;
         sphere_index = i;
@@ -273,13 +272,12 @@ CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections,
     current_plane = *gpu_plane;
     float distance = current_plane.intersection(origin, dir);
     if(distance >= 0 && (distance < intersect_distance || !intersected)) {
-      intersected = 2;
+      intersected = 1;
       intersect_distance = distance;
       plane_closer = 1;
-      //intersected = &current_plane;
     }
 
-    if(!intersected)
+    if(intersected == 0)
       return vec(AMBIENT, AMBIENT, AMBIENT);
 
     intersection = origin + dir * (intersect_distance - EPSILON);
@@ -290,11 +288,11 @@ CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections,
     
     // Initialize the result color to the ambient light reflected in the shapes color
     if(!plane_closer) {
-      result = gpu_spheres[sphere_index].get_color(origin) * AMBIENT;
-      n = (gpu_spheres[sphere_index].get_pos() - origin).normalized();
+      result = gpu_spheres[sphere_index].get_color(intersection) * AMBIENT;
+      n = (intersection - gpu_spheres[sphere_index].get_pos()).normalized();
     }
     else {
-      result = current_plane.get_color(origin) * AMBIENT;
+      result = current_plane.get_color(intersection) * AMBIENT;
       n = current_plane.get_norm();
     }
   
@@ -303,14 +301,14 @@ CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections,
       
     // Add the reflection to the result, tinted by the color of the shape
     if(!plane_closer) {
-      final_result += result.hadamard(gpu_spheres[sphere_index].get_color(origin)) *
+      final_result += result.hadamard(gpu_spheres[sphere_index].get_color(intersection)) *
         gpu_spheres[sphere_index].get_reflectivity();
     }
     else {
-      final_result += result.hadamard(current_plane.get_color(origin)) *
+      final_result += result.hadamard(current_plane.get_color(intersection)) *
         current_plane.get_reflectivity();
     }
-
+    
     for(int i=0; i < 2; i++) {
       current_light = gpu_lights[i];
       bool in_shadow = false;
@@ -356,7 +354,7 @@ CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections,
         
       }
     }
-     
+    
     reflections++;
     
   }
