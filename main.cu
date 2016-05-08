@@ -335,18 +335,19 @@ CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections,
       // If there is a clear path to the light, add illumination
       if(!in_shadow) {
         vec bisector = (shadow_dir - dir).normalized();
+        float specular_intensity;
         if(!plane_closer) {
           float diffuse_intensity = gpu_spheres[sphere_index].get_diffusion() * fmax(0, n.dot(shadow_dir));     
           // Add diffuse lighting tinted by the color of the shape
           final_result += gpu_spheres[sphere_index].get_color(intersection) * diffuse_intensity;
-          float specular_intensity = gpu_spheres[sphere_index].get_spec_intensity() *
+          specular_intensity = gpu_spheres[sphere_index].get_spec_intensity() *
             fmax(0, pow(n.dot(bisector), (int)gpu_spheres[sphere_index].get_spec_density()));
         }
         else {
           float diffuse_intensity = current_plane.get_diffusion() * fmax(0, n.dot(shadow_dir));     
           // Add diffuse lighting tinted by the color of the shape
           final_result += current_plane.get_color(intersection) * diffuse_intensity;
-          float specular_intensity = current_plane.get_spec_intensity() *
+          specular_intensity = current_plane.get_spec_intensity() *
             fmax(0, pow(n.dot(bisector), (int)current_plane.get_spec_density()));
         }
       
