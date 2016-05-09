@@ -53,7 +53,7 @@ void init_scene();
 CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections, sphere* gpu_spheres,
                                   plane* gpu_plane, vec* gpu_lights);
 
-// A list of shapes that make up the 3D scene. Initialized by init_scene
+// A list of spheres that make up the 3D scene. Initialized by init_scene
 sphere scene[OBJ_NUM];
 
 // A plane
@@ -78,7 +78,7 @@ int main(int argc, char** argv) {
   // Initialize the 3D scene
   init_scene();
 
-  // GPU shapes
+  // initiates and allocate memory for GPU shapes
   sphere* gpu_spheres;
   if (cudaMalloc(&gpu_spheres, sizeof(sphere) * OBJ_NUM) != cudaSuccess) {
     fprintf( stderr, "Fail to allocate GPU objects\n");
@@ -87,7 +87,7 @@ int main(int argc, char** argv) {
     fprintf( stderr, "Fail to copy objects to GPU\n");
   }
 
-  // GPU plane
+  // initiates and allocate memory for GPU plane
   plane* gpu_plane;
   if (cudaMalloc(&gpu_plane, sizeof(plane)) != cudaSuccess) {
     fprintf( stderr, "Fail to allocate GPU plane\n");
@@ -97,7 +97,7 @@ int main(int argc, char** argv) {
   }
   
     
-  // GPU lights
+  // initiates and allocate memory for GPU lights
   vec* gpu_lights;
   if (cudaMalloc(&gpu_lights, sizeof(vec) * LIGHT_NUM)!= cudaSuccess) {
     fprintf( stderr, "Fail to allocate GPU lights\n");
@@ -219,6 +219,7 @@ __global__ void set_pixel_color(viewport* view, sphere* gpu_spheres, plane* gpu_
 
 }
 
+// Trace a ray through the scene to determine its color
 CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections,
                                   sphere* gpu_spheres, plane* gpu_plane, vec* gpu_lights) {
   
@@ -251,7 +252,7 @@ CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections,
       }
     }
   
-    // Do the same for the plane
+    // Loop over the plane in the scene to find the closest intersection
     current_plane = *gpu_plane;
     float distance = current_plane.intersection(origin, dir);
     if(distance >= 0 && (distance < intersect_distance || !intersected)) {
@@ -259,15 +260,15 @@ CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections,
       intersect_distance = distance;
       plane_closer = 1;
     }
-
+   // if not intersected to any shapes
     if(intersected == 0)
       return vec(AMBIENT, AMBIENT, AMBIENT);
 
     intersection = origin + dir * (intersect_distance - EPSILON);
 
     
-    vec n;
-    vec result;
+    vec n; // normalized vector
+    vec result; //the result color 
     
     // Initialize the result color to the ambient light reflected in the shapes color
     if(!plane_closer) {
@@ -291,8 +292,8 @@ CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections,
       final_result += result.hadamard(current_plane.get_color(intersection)) *
         current_plane.get_reflectivity();
     }
-    
-    for(int i=0; i < 2; i++) {
+    // For the lights
+    for(int i=0; i < LIGHT_NUM; i++) {
       current_light = gpu_lights[i];
       bool in_shadow = false;
       // Create a unit vector from the intersection to the light source
