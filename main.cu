@@ -1,11 +1,3 @@
-// Remember to ask Charlie:
-// 1. Can a CUDA helper function return anything?
-// 2. MemCpy inside the kernel?
-// 3. Removed the "delete;" lines from the classes (bitmap), still getting the C++ error;
-// Need to hardcore num scene objects
-// Change that vector to an array
-// No For Each
-
 #include <math.h>
 #include <stdio.h>
 #include <vector>
@@ -140,6 +132,7 @@ int main(int argc, char** argv) {
     float yrot = (time_ms() - start_time)/5000.0 * M_PI * 2;
     float* gpu_yrot;
     
+    // Allocate memory for GPU y-rotation
     if (cudaMalloc(&gpu_yrot, sizeof(float))!= cudaSuccess) {
       fprintf( stderr, "Fail to allocate GPU yrot\n");
     }
@@ -159,9 +152,7 @@ int main(int argc, char** argv) {
       fprintf( stderr, "Fail to copy bitmap to GPU\n");
     }
 
-    // allocating necessary variables for raytrace
-
-    // viewport
+    // Allocate memory for gpu viewport
     viewport* gpu_viewport;
     if (cudaMalloc(&gpu_viewport, sizeof(viewport))!= cudaSuccess) {
       fprintf( stderr, "Fail to allocate GPU viewport\n");
@@ -172,6 +163,8 @@ int main(int argc, char** argv) {
 
     int oversample = OVERSAMPLE;
     int* gpu_oversample;
+    
+    // Allocate memory for gpu oversample
     if (cudaMalloc(&gpu_oversample, sizeof(int))!= cudaSuccess) {
       fprintf( stderr, "Fail to allocate GPU oversample\n");
     }
@@ -179,14 +172,15 @@ int main(int argc, char** argv) {
       fprintf( stderr, "Fail to copy int to GPU\n");
     }
    
-    // a thread for each pixel
+    // Create a thread for each pixel
     set_quadrant_color <<<(N + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK,
       THREADS_PER_BLOCK>>> (gpu_viewport, gpu_spheres, gpu_plane, gpu_bmp, gpu_oversample, gpu_yrot, gpu_lights);
-
+      
+     // Check for any errors in gpu
     gpuErrchk(cudaPeekAtLastError());
     gpuErrchk(cudaDeviceSynchronize());
     
-     // copy result array to CPU
+     // Copy result array to CPU
     if(cudaMemcpy(&cpu_bmp, gpu_bmp, cpu_bmp.size(), cudaMemcpyDeviceToHost)
        != cudaSuccess) {
       fprintf( stderr, "Fail to copy result_array to CPU\n");
@@ -194,13 +188,14 @@ int main(int argc, char** argv) {
     // Display the rendered frame
     ui.display(cpu_bmp);
 
-  // free stuff
+  // Free variables that are reallocated within while-loop
     cudaFree(gpu_bmp);
     cudaFree(gpu_viewport);
     cudaFree(gpu_oversample);
     cudaFree(gpu_yrot);
   }
 
+// Free all other variables
   cudaFree(gpu_spheres);
   cudaFree(gpu_plane);
   cudaFree(gpu_lights);
@@ -210,12 +205,12 @@ int main(int argc, char** argv) {
 
 // computes the color for the quadrants
 __global__ void set_quadrant_color(viewport* view, sphere* gpu_spheres, plane* gpu_plane, bitmap* gpu_bmp, int* gpu_oversample, float* gpu_yrot, vec* gpu_lights){
+  
+  // Calculate the y and x indices from thread, block id
   int index = threadIdx.x + blockIdx.x * blockDim.x;
   int index_x = index % WIDTH;
   int index_y = index / WIDTH;
-  if(index_y >= HEIGHT || index_x >= WIDTH || index >= HEIGHT*WIDTH) {
-    printf("%d, %d\n", index_x, index_y);
-  }
+  
   vec result;
   for(int y_sample = 0; y_sample < (*gpu_oversample); y_sample++) {
     // The y offset is half way between the edges of this subpixel
@@ -247,6 +242,8 @@ CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections,
   vec final_result;
   vec intersection = origin;
   vec current_light;
+  
+  // Iterate while there are reflections left to do
   while(reflections < MAX_REFLECTIONS) {
     int plane_closer = 0;
     int sphere_index = 0;
@@ -268,7 +265,7 @@ CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections,
       }
     }
   
-    // for the plane
+    // Do the same for the plane
     current_plane = *gpu_plane;
     float distance = current_plane.intersection(origin, dir);
     if(distance >= 0 && (distance < intersect_distance || !intersected)) {
@@ -355,6 +352,7 @@ CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections,
       }
     }
     
+    // Increment reflections
     reflections++;
     
   }
@@ -388,23 +386,11 @@ void init_scene() {
   
   // Add a flat surface
    plane* surface = new plane(vec(0, 0, 0), vec(0, 1, 0));
-   // The following line uses C++'s lambda expressions to create a function
-  /*
-  surface->set_color([](vec pos) {
-      // This function produces a grid pattern on the plane
-      if((int)pos.x() % 100 == 0 || (int)pos.z() % 100 == 0) {
-        return vec(0.3, 0.3, 0.3);
-      } else {
-        return vec(0.15, 0.15, 0.15);
-      }
-    });
-  */ 
   surface->set_diffusion(0.25);
   surface->set_spec_density(10);
   surface->set_spec_intensity(0.1);
   cpu_plane = *surface;
-  //scene[3] = *surface;
-  
+
   // Add two lights
   lights[0] = vec(-1000, 300, 0);
   lights[1] = vec(100, 900, 500);
