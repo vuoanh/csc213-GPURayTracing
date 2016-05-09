@@ -10,6 +10,7 @@
 #include "util.hh"
 #include "vec.hh"
 
+// http://stackoverflow.com/questions/6978643/cuda-and-classes
 #ifdef __CUDACC__
 #define CUDA_CALLABLE_MEMBER __host__ __device__
 #else
@@ -35,7 +36,7 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 
 // Rendering Properties
 #define AMBIENT 0.3         // Ambient illumination
-#define OVERSAMPLE 2        // Sample 2x2 subpixels
+#define OVERSAMPLE 2       // Sample 2x2 subpixels
 #define MAX_REFLECTIONS 1  // The maximum number of times a ray is reflected
 #define EPSILON 0.03        // Shift points off surfaces by this much
 // Create threads for oversampling
@@ -61,9 +62,9 @@ plane cpu_plane;
 // A list of light positions, all emitting pure white light
 vec lights[LIGHT_NUM];
 
-// computes the color for the quadrants
-__global__ void set_quadrant_color(viewport* view, sphere* gpu_scene, plane* gpu_plane,
-                                   bitmap* gpu_bmp, int* gpu_oversample, float* gpu_yrot, vec* gpu_lights);
+// computes the color for the pixels
+__global__ void set_pixel_color(viewport* view, sphere* gpu_scene, plane* gpu_plane,
+                                   bitmap* gpu_bmp, float* gpu_yrot, vec* gpu_lights);
 
 /**
  * Entry point for the raytracer
@@ -118,7 +119,6 @@ int main(int argc, char** argv) {
   
   bool running = true;
 
-  
   // Loop until we get a quit event
   while(running) {
     // Process events
@@ -129,7 +129,7 @@ int main(int argc, char** argv) {
     }
     
     // Rotate the camera around the scene once every five seconds
-    float yrot = (time_ms() - start_time)/5000.0 * M_PI * 2;
+    float yrot = (time_ms() - start_time)/4000.0 * M_PI * 2;
     float* gpu_yrot;
     
     // Allocate memory for GPU y-rotation
@@ -161,20 +161,9 @@ int main(int argc, char** argv) {
       fprintf( stderr, "Fail to copy viewport to GPU\n");
     }
 
-    int oversample = OVERSAMPLE;
-    int* gpu_oversample;
-    
-    // Allocate memory for gpu oversample
-    if (cudaMalloc(&gpu_oversample, sizeof(int))!= cudaSuccess) {
-      fprintf( stderr, "Fail to allocate GPU oversample\n");
-    }
-    if(cudaMemcpy(gpu_oversample, &oversample, sizeof(int), cudaMemcpyHostToDevice) != cudaSuccess) {
-      fprintf( stderr, "Fail to copy int to GPU\n");
-    }
-   
-    // Create a thread for each pixel
-    set_quadrant_color <<<(N + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK,
-      THREADS_PER_BLOCK>>> (gpu_viewport, gpu_spheres, gpu_plane, gpu_bmp, gpu_oversample, gpu_yrot, gpu_lights);
+      // Create a thread for each pixel
+    set_pixel_color <<<(N + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK,
+      THREADS_PER_BLOCK>>> (gpu_viewport, gpu_spheres, gpu_plane, gpu_bmp, gpu_yrot, gpu_lights);
       
      // Check for any errors in gpu
     gpuErrchk(cudaPeekAtLastError());
@@ -191,7 +180,6 @@ int main(int argc, char** argv) {
   // Free variables that are reallocated within while-loop
     cudaFree(gpu_bmp);
     cudaFree(gpu_viewport);
-    cudaFree(gpu_oversample);
     cudaFree(gpu_yrot);
   }
 
@@ -204,7 +192,7 @@ int main(int argc, char** argv) {
 }
 
 // computes the color for the quadrants
-__global__ void set_quadrant_color(viewport* view, sphere* gpu_spheres, plane* gpu_plane, bitmap* gpu_bmp, int* gpu_oversample, float* gpu_yrot, vec* gpu_lights){
+__global__ void set_pixel_color(viewport* view, sphere* gpu_spheres, plane* gpu_plane, bitmap* gpu_bmp,  float* gpu_yrot, vec* gpu_lights){
   
   // Calculate the y and x indices from thread, block id
   int index = threadIdx.x + blockIdx.x * blockDim.x;
@@ -212,23 +200,21 @@ __global__ void set_quadrant_color(viewport* view, sphere* gpu_spheres, plane* g
   int index_y = index / WIDTH;
   
   vec result;
-  for(int y_sample = 0; y_sample < (*gpu_oversample); y_sample++) {
+  for(int y_sample = 0; y_sample < OVERSAMPLE; y_sample++) {
     // The y offset is half way between the edges of this subpixel
-    float y_off = (y_sample + 0.5) / (*gpu_oversample);
+    float y_off = (y_sample + 0.5) / OVERSAMPLE;
           
     // Loop over x subpixel positions
-    for(int x_sample = 0; x_sample < (*gpu_oversample); x_sample++) {
+    for(int x_sample = 0; x_sample < OVERSAMPLE; x_sample++) {
       // The x offset is half way between the edges of this subpixel
-      float x_off = (x_sample + 0.5) / (*gpu_oversample);
+      float x_off = (x_sample + 0.5) / OVERSAMPLE;
       
       // Raytrace from the viewport origin through the viewing 
       result += raytrace(view->origin().yrotated(*gpu_yrot), view->dir(index_x + x_off, index_y + y_off).yrotated(*gpu_yrot), 0, gpu_spheres, gpu_plane, gpu_lights);
-      //vec result = vec(AMBIENT, AMBIENT, AMBIENT);
-      // Set the pixel color
     }
   }
-
-  result /= (*gpu_oversample)*(*gpu_oversample);
+  // Set the pixel color
+  result /= OVERSAMPLE*OVERSAMPLE;
   gpu_bmp->set(index_x, index_y, result);
 
 }
@@ -312,6 +298,7 @@ CUDA_CALLABLE_MEMBER vec raytrace(vec origin, vec dir, size_t reflections,
       // Create a unit vector from the intersection to the light source
       vec shadow_dir = (current_light - intersection).normalized();
 
+      // for the spheres
       for(int i = 0; i < OBJ_NUM ; i++) {
         current_sphere = gpu_spheres[i];
         if(current_sphere.intersection(intersection, shadow_dir) >= 0) {
@@ -389,6 +376,7 @@ void init_scene() {
   surface->set_diffusion(0.25);
   surface->set_spec_density(10);
   surface->set_spec_intensity(0.1);
+  surface->set_color(vec(0.3,0.3,0.3));
   cpu_plane = *surface;
 
   // Add two lights
