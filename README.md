@@ -3,7 +3,7 @@ Final project
 This is the product of collaboration among four members in the group : Medha Gopalaswamy, Khoa Nguyen, Ameer Shujjah, and Oanh Vu.
 
 ## Overview
-- Extended the [rayTracer lab](http://http://www.cs.grinnell.edu/~curtsinger/teaching/2016S/CSC213/labs/raytracer/)
+- Extended the [rayTracer lab](http://www.cs.grinnell.edu/~curtsinger/teaching/2016S/CSC213/labs/raytracer/)
 - Pixel computation is now done on the GPUs, rather than on CPU
 - Pixel color is then copied it back and displayed on CPU
 
